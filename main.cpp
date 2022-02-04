@@ -5,7 +5,7 @@
 #include <mpi.h>
 
 
-void generate_random_vector(int N, double *vec, int lower_limit, int higher_limit);
+void generate_random_vector(int N, float *vec, float lower_limit, float higher_limit);
 void generate_random_vector(int N, int *vec, int lower_limit, int higher_limit);
 int generate_file(int N, int range, std::string &filename);
 void add(int rank, int size, int N);
@@ -18,20 +18,19 @@ int main(int argc, char *argv[]) {
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
 
-    add(rank, size, 1048576);
-    get_norm(rank, size, 1024);
-    get_histogram(rank, size, 1024, 100);
+    add(rank, size, static_cast<int>(pow(2, 29)));
+    get_norm(rank, size, static_cast<int>(pow(2, 30)));
+    get_histogram(rank, size, static_cast<int>(pow(2, 31)), 100);
 
     MPI_Finalize();
 }
 
 
-void generate_random_vector(int N, double *vec, int lower_limit, int higher_limit) {
+void generate_random_vector(int N, float *vec, float lower_limit, float higher_limit) {
     std::random_device rd;
-    std::default_random_engine eng(rd());
+    std::mt19937_64 eng(rd());
 
-    std::uniform_real_distribution<double> distribution(lower_limit, higher_limit);
-
+    std::uniform_real_distribution<float> distribution(lower_limit,higher_limit);
     for (int i = 0; i < N; i++) {
         vec[i] = distribution(eng);
     }
@@ -39,7 +38,7 @@ void generate_random_vector(int N, double *vec, int lower_limit, int higher_limi
 
 void generate_random_vector(int N, int *vec, int lower_limit, int higher_limit) {
     std::random_device rd;
-    std::default_random_engine eng(rd());
+    std::mt19937_64 eng(rd());
 
     std::uniform_int_distribution<int> distribution(lower_limit, higher_limit);
 
@@ -61,7 +60,7 @@ int generate_file(int N, int range, std::string &filename) {
     generate_random_vector(N, numbers, 0 , range);
 
     for (int i = 0; i < N; i++) {
-        out_file << numbers[i] << std::endl;
+        out_file << numbers[i] << " ";
     }
 
     out_file.close();
@@ -73,35 +72,35 @@ void add(int rank, int size, int N) {
 
     int chunk = N / size;
 
-    auto *vec_a = new double[N];
-    auto *vec_b = new double[N];
-    auto *vec_c = new double[N];
+    auto *vec_a = new float[N];
+    auto *vec_b = new float[N];
+    auto *vec_c = new float[N];
 
-    auto *chunk_vec_a = new double[chunk];
-    auto *chunk_vec_b = new double[chunk];
-    auto *chunk_vec_c = new double[chunk];
+    auto *chunk_vec_a = new float[chunk];
+    auto *chunk_vec_b = new float[chunk];
+    auto *chunk_vec_c = new float[chunk];
+
+    if (rank == 0) {
+        generate_random_vector(N, vec_b, 0, 1.0);
+        generate_random_vector(N, vec_c, 0, 1.0);
+    }
 
     start = MPI_Wtime();
 
-    if (rank == 0) {
-        generate_random_vector(N, vec_b, 0, 1);
-        generate_random_vector(N, vec_c, 0, 1);
-    }
-
-    MPI_Scatter(vec_b, chunk, MPI_DOUBLE,
-                chunk_vec_b, chunk, MPI_DOUBLE,
+    MPI_Scatter(vec_b, chunk, MPI_FLOAT,
+                chunk_vec_b, chunk, MPI_FLOAT,
                 0, MPI_COMM_WORLD);
 
-    MPI_Scatter(vec_c, chunk, MPI_DOUBLE,
-                chunk_vec_c, chunk, MPI_DOUBLE,
+    MPI_Scatter(vec_c, chunk, MPI_FLOAT,
+                chunk_vec_c, chunk, MPI_FLOAT,
                 0, MPI_COMM_WORLD);
 
     for (int i = 0; i < chunk; i++) {
         chunk_vec_a[i] = chunk_vec_b[i] + chunk_vec_c[i];
     }
 
-    MPI_Gather(chunk_vec_a, chunk, MPI_DOUBLE,
-               vec_a, chunk, MPI_DOUBLE,
+    MPI_Gather(chunk_vec_a, chunk, MPI_FLOAT,
+               vec_a, chunk, MPI_FLOAT,
                0, MPI_COMM_WORLD);
 
     stop = MPI_Wtime();
@@ -113,32 +112,39 @@ void add(int rank, int size, int N) {
         std::cout << "Time: " << stop - start << std::endl;
         std::cout << "A[0]: " << vec_a[0] <<", A[N - 1]: " << vec_a[N - 1]<< std::endl;
     }
+
+    delete[] vec_a;
+    delete[] vec_b;
+    delete[] vec_c;
+    delete[] chunk_vec_a;
+    delete[] chunk_vec_b;
+    delete[] chunk_vec_c;
 }
 
 void get_norm(int rank, int size, int N) {
     double start, stop;
 
-    start = MPI_Wtime();
-
     int chunk{N / size};
-    auto *vec_a = new double[N];
-    auto *chunk_vec_a = new double[chunk];
-    double result{0};
+    auto *vec_a = new float[N];
+    auto *chunk_vec_a = new float[chunk];
+    double result{};
 
     if (rank == 0) {
         generate_random_vector(N, vec_a, 0, 1);
     }
 
-    MPI_Scatter(vec_a, chunk, MPI_DOUBLE,
-                chunk_vec_a, chunk, MPI_DOUBLE,
+    start = MPI_Wtime();
+
+    MPI_Scatter(vec_a, chunk, MPI_FLOAT,
+                chunk_vec_a, chunk, MPI_FLOAT,
                 0, MPI_COMM_WORLD);
 
     for (int i = 0; i < chunk; i++) {
         chunk_vec_a[i] *= chunk_vec_a[i];
     }
 
-    MPI_Gather(chunk_vec_a, chunk, MPI_DOUBLE,
-               vec_a, chunk, MPI_DOUBLE,
+    MPI_Gather(chunk_vec_a, chunk, MPI_FLOAT,
+               vec_a, chunk, MPI_FLOAT,
                0, MPI_COMM_WORLD);
 
     stop = MPI_Wtime();
@@ -154,6 +160,9 @@ void get_norm(int rank, int size, int N) {
         std::cout << "Time: " << stop - start << std::endl;
         std::cout << "Norm(A): " << result << std::endl;
     }
+
+    delete[] vec_a;
+    delete[] chunk_vec_a;
 }
 
 void get_histogram(int rank, int size, int N, int range) {
@@ -161,7 +170,6 @@ void get_histogram(int rank, int size, int N, int range) {
     double start, stop;
 
     range++;
-    start = MPI_Wtime();
 
     int chunk{N / size};
     auto *histogram = new int[range]{};
@@ -170,15 +178,18 @@ void get_histogram(int rank, int size, int N, int range) {
     auto *chunk_numbers = new int[chunk];
 
     if (rank == 0) {
+        // z jakiegoś powodu inaczej nie mogłem otworzyć pliku
         std::string filename{"/home/mateusz/mpi_studia/numbers.txt"};
         generate_file(N, range, filename);
         std::ifstream in_file{filename};
         int i{0};
-        while (in_file >> num) {
+        while (in_file >> num && i < N) {
             numbers[i] = num;
             i++;
         }
     }
+
+    start = MPI_Wtime();
 
     MPI_Scatter(numbers, chunk, MPI_INT,
                 chunk_numbers, chunk, MPI_INT,
@@ -199,11 +210,29 @@ void get_histogram(int rank, int size, int N, int range) {
         std::cout << "Zad. E1c Histogram" << std::endl;
         std::cout << "Processes used: " << size << std::endl;
         std::cout << "Time: " << stop - start << std::endl;
-        std::cout << std::setw(10) << std::left << "Number" << "Frequency"
-        << std::endl;
-        for (int i = 0; i < range; i++) {
-            std::cout << std::setw(10) << std::left << i << histogram[i]
-                      << std::endl;
+        std::cout << std::setw(8) << std::left << "Number"
+                  << std::setw(9) << std::right << "Frequency | "
+                  << std::setw(8) << std::left << "Number"
+                  << std::setw(9) << std::right << "Frequency | "
+                  << std::setw(8) << std::left << "Number"
+                  << std::setw(9) << std::right << "Frequency |"
+                  << std::endl;
+        for (int i = 0; i < 35; i++) {
+            std::cout << std::setw(8) << std::left << i
+                      << std::setw(9) << std::right << histogram[i] << " | "
+                      << std::right << std::setw(8) << std::left << i + 34
+                      << std::setw(9) << std::right << histogram[i + 34] << " | ";
+            if (i != 34) {
+                std::cout << std::right << std::setw(8) << std::left << i + 67
+                          << std::setw(9) << std::right << histogram[i + 67] << " | "
+                          << std::right <<std::endl;
+            } else {
+                std::cout << std::endl;
+            }
          }
     }
+    delete[] histogram;
+    delete[] chunk_histogram;
+    delete[] numbers;
+    delete[] chunk_numbers;
 }
